@@ -1,10 +1,12 @@
 #!/bin/bash
-BUDDY_OPT := ../../build/bin/buddy-opt
-MLIR_OPT := ../../llvm/build/bin/mlir-opt
-MLIR_TRANSLATE := ../../llvm/build/bin/mlir-translate
-MLIR_CPU_RUNNER := ../../llvm/build/bin/mlir-cpu-runner
-LLC := ../../llvm/build/bin/llc
-OPT_FLAG := -O0
+BUDDY_OPT ?= ../../build/bin/buddy-opt
+BUDDY_TRANSLATE ?= ../../build/bin/buddy-translate
+BUDDY_LLC ?= ../../build/bin/buddy-llc
+MLIR_OPT ?= ../../llvm/build/bin/mlir-opt
+MLIR_TRANSLATE ?= ../../llvm/build/bin/mlir-translate
+MLIR_CPU_RUNNER ?= ../../llvm/build/bin/mlir-cpu-runner
+LLC ?= ../../llvm/build/bin/llc
+OPT_FLAG ?= -O0
 
 resnet-18-stat:
 	@${MLIR_OPT} ./ResNet-18.mlir \
@@ -66,3 +68,28 @@ bert-lower:
 		--convert-func-to-llvm \
 		--reconcile-unrealized-casts \
 		-o ./log.mlir
+
+bert-run:
+	${MLIR_OPT} ./Bert.mlir \
+		--test-linalg-transform-patterns="test-generalize-pad-tensor" \
+		--linalg-bufferize \
+		--convert-linalg-to-loops \
+		--func-bufferize \
+		--arith-bufferize \
+		--tensor-bufferize \
+		--finalizing-bufferize \
+		--convert-vector-to-scf \
+		--convert-scf-to-cf \
+		--expand-strided-metadata \
+		--lower-affine \
+		--convert-vector-to-llvm \
+		--memref-expand \
+		--arith-expand \
+		--convert-arith-to-llvm \
+		--finalize-memref-to-llvm \
+		--test-math-polynomial-approximation \
+		--convert-math-to-llvm \
+		--llvm-request-c-wrappers \
+		--convert-func-to-llvm \
+		--reconcile-unrealized-casts | \
+	${MLIR_TRANSLATE} --mlir-to-llvmir -o llvmir.ir

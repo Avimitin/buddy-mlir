@@ -16,14 +16,10 @@
         };
         binaries_to_env = with builtins;
           bins:
-            listToAttrs (
-              map
-                (x: {
-                   name = (pkgs.lib.toUpper (replaceStrings [ "-" ] [ "_" ] x));
-                   value = "${pkgs.buddy-mlir}/bin/${x}";
-                 })
-              bins
-            );
+          listToAttrs (map (x: {
+            name = (pkgs.lib.toUpper (replaceStrings [ "-" ] [ "_" ] x));
+            value = "${pkgs.buddy-mlir}/bin/${x}";
+          }) bins);
       in {
         devShells.ci = pkgs.mkShell {
           buildInputs = with pkgs; [ buddy-mlir libspike ];
@@ -37,7 +33,7 @@
             "buddy-translate"
             "buddy-llc"
             "llc"
-          ]) // {};
+          ]) // { };
         };
 
         packages.buddy-mlir = pkgs.callPackage ./nix/buddy.nix { };

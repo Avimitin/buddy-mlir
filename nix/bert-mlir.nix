@@ -5,9 +5,7 @@ stdenv.mkDerivation {
   src = ../examples/DLModel/Bert.mlir;
   dontUnpack = true;
   # TODO: add rv32-clang
-  nativeBuildInputs = [
-    buddy-mlir
-  ];
+  nativeBuildInputs = [ buddy-mlir ];
   buddyOptArgs = [
     "--test-linalg-transform-patterns=test-generalize-pad-tensor"
     "--linalg-bufferize"

@@ -1,10 +1,32 @@
-{ stdenv, cmake, ninja, python3, fetchFromGitHub }:
+{ stdenv, cmake, ninja, python3, fetchFromGitHub, lib }:
 let
-  buddy-src = with builtins; filterSource
-    (path: _:
-      (match ".*\\.nix" path) == null
-      && (baseNameOf path) != "flake.lock")
-    ../.;
+  pname = "buddy-mlir";
+  version = "unstable-2023-08-02";
+
+  # Copy only buddy component to avoid rebuild everytime repo got changed
+  buddy-src = let
+    nonBuddyMainSrc = {
+      directory = [ "benchmark" "docs" "examples" "nix" "scripts" "tests" ];
+      file = [ "LICENSE" "README.md" ];
+    };
+    isBuddyComponent = with builtins;
+      path: type:
+      let
+        name = baseNameOf path;
+        notHasSameName = patterns: !(any (f: f == name) patterns);
+      in if type == "directory" then
+        notHasSameName nonBuddyMainSrc.directory
+      else if type == "regular" then
+        notHasSameName nonBuddyMainSrc.file
+      else
+      # reject symlink and unknown file type
+        false;
+  in lib.cleanSourceWith {
+    name = "${pname}-src-${version}";
+    filter = isBuddyComponent;
+    src = ../.;
+  };
+
   llvm-src = fetchFromGitHub {
     owner = "llvm";
     repo = "llvm-project";
@@ -12,8 +34,7 @@ let
     sha256 = "sha256-g2cYk3/iyUvmIG0QCQpYmWj4L2H4znx9KbuA5TvIjrc=";
   };
 in stdenv.mkDerivation rec {
-  pname = "buddy-mlir";
-  version = "unstable-2023-08-02";
+  inherit pname version;
   srcs = [ buddy-src llvm-src ];
   sourceRoot = ".";
   unpackPhase = ''
@@ -25,6 +46,12 @@ in stdenv.mkDerivation rec {
     # [1] llvm: cmake is hard-coded to find llvm inside buddy-mlir
     cp -r ''${sources[1]} buddy-mlir/llvm
     chmod -R u+w -- buddy-mlir/llvm
+  '';
+  patchPhase = ''
+    # These directories are excluded to avoid rebuild everytime
+    substituteInPlace ./buddy-mlir/CMakeLists.txt \
+      --replace 'add_subdirectory(examples)' "" \
+      --replace 'add_subdirectory(tests)' ""
   '';
   # Bash variable is not resolved in cmakeFlags
   preConfigure = ''

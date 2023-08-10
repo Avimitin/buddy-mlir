@@ -4,25 +4,31 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    # Use the already configured overlay from vector repo.
+    vector = {
+      url = "github:sequencer/vector";
+      # Replace the nixpkgs source to this flake, to avoid problem caused by different versions of nixpkgs.
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    let overlay = import ./overlay.nix;
+  outputs = { self, nixpkgs, vector, flake-utils }:
+    let overlays = [ vector.overlays.default ];
     in flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-          overlays = [ overlay ];
-        };
+        pkgs = import nixpkgs { inherit system overlays; };
         binaries_to_env = with builtins;
+          with pkgs;
           bins:
           listToAttrs (map (x: {
-            name = (pkgs.lib.toUpper (replaceStrings [ "-" ] [ "_" ] x));
-            value = "${pkgs.buddy-mlir}/bin/${x}";
+            name = (lib.toUpper (replaceStrings [ "-" ] [ "_" ] x));
+            value = "${buddy-mlir}/bin/${x}";
           }) bins);
+        mkLLVMShell =
+          pkgs.mkShell.override { stdenv = pkgs.llvmForDev.stdenv; };
       in {
-        devShells.ci = pkgs.mkShell {
-          buildInputs = with pkgs; [ buddy-mlir libspike ];
+        devShells.ci = mkLLVMShell {
+          buildInputs = with pkgs; [ buddy-mlir libspike rv32-clang ];
 
           # Overwrite the makefile value
           env = (binaries_to_env [
@@ -36,13 +42,12 @@
           ]) // { };
         };
 
-        packages.buddy-mlir = pkgs.callPackage ./nix/buddy.nix { };
-
-        formatter = pkgs.writeScriptBin "format-all" ''
-          #!${pkgs.bash}/bin/bash
-          ${pkgs.findutils}/bin/find . \
-            -name '*.nix' \
-            -exec ${pkgs.nixfmt}/bin/nixfmt {} +
-        '';
+        formatter = with pkgs;
+          writeScriptBin "format-all" ''
+            #!${bash}/bin/bash
+            ${findutils}/bin/find . \
+              -name '*.nix' \
+              -exec ${pkgs.nixfmt}/bin/nixfmt {} +
+          '';
       });
 }

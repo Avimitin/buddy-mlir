@@ -13,41 +13,47 @@
   };
 
   outputs = { self, nixpkgs, vector, flake-utils }:
-    let overlays = [ vector.overlays.default ];
-    in flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs { inherit system overlays; };
-        binaries_to_env = with builtins;
-          with pkgs;
-          bins:
-          listToAttrs (map (x: {
-            name = (lib.toUpper (replaceStrings [ "-" ] [ "_" ] x));
-            value = "${buddy-mlir}/bin/${x}";
-          }) bins);
-        mkLLVMShell =
-          pkgs.mkShell.override { stdenv = pkgs.llvmForDev.stdenv; };
-      in {
-        devShells.ci = mkLLVMShell {
-          buildInputs = with pkgs; [ buddy-mlir libspike rv32-clang ];
+    let
+      myOverlay = import ./overlay.nix;
+      overlays = [ vector.overlays.default myOverlay ];
+    in
+    flake-utils.lib.eachDefaultSystem
+      (system:
+        let
+          pkgs = import nixpkgs { inherit system overlays; };
+          mkLLVMShell =
+            pkgs.mkShell.override { stdenv = pkgs.llvmForDev.stdenv; };
+        in
+        {
+          devShells.ci = mkLLVMShell {
+            buildInputs = with pkgs; [
+              spike
+              riscv-pk
+              dtc
+              rv32-clangxx
+              riscv-gnu-toolchain
+              (writeShellScriptBin "run-bert" ''
+                spike --isa=RV64GCV "$@" ${riscv-pk}/bin/pk ${bert}/bin/sentiment-classification || \
+                  echo -e "\n\nFail to run, try\n    spike -d ${riscv-pk}/bin/pk $BERT_BIN 2>error.log\nto get error instruction"
+              '')
+              (writeShellScriptBin "qemu-rv64" ''
+                LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${riscv-cxx-runtime}/lib \
+                  ${qemu}/bin/qemu-riscv64 -L ${riscv-gnu-toolchain}/sysroot \
+                    -cpu rv64,x-v=true,vlen=128 "$@"
+              '')
+            ];
 
-          # Overwrite the makefile value
-          env = (binaries_to_env [
-            "mlir-opt"
-            "mlir-translate"
-            "mlir-cpu-runner"
-            "buddy-opt"
-            "buddy-translate"
-            "buddy-llc"
-            "llc"
-          ]) // { };
-        };
+            env = {
+              BERT_BIN = "${pkgs.bert}/bin/sentiment-classification";
+            };
+          };
 
-        formatter = with pkgs;
-          writeScriptBin "format-all" ''
-            #!${bash}/bin/bash
-            ${findutils}/bin/find . \
-              -name '*.nix' \
-              -exec ${pkgs.nixfmt}/bin/nixfmt {} +
-          '';
-      });
+          packages.bert = pkgs.callPackage ./.github/nix/bert.nix { };
+          packages.riscv-pk = pkgs.callPackage ./.github/nix/riscv-pk.nix { };
+          packages.riscv-cxx-runtime = pkgs.callPackage ./.github/nix/riscv-cxx-runtime.nix {  };
+
+          formatter = pkgs.nixpkgs-fmt;
+        })
+    # Export our overlay in case somebody need them
+    // { overlays.default = myOverlay; };
 }
